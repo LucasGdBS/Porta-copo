@@ -22,6 +22,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
+#include "liquidcrystal_i2c.h"
 
 /* USER CODE END Includes */
 
@@ -41,10 +44,13 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
+unsigned char caracter;
 
 /* USER CODE END PV */
 
@@ -52,9 +58,11 @@ osThreadId defaultTaskHandle;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
+void lcd_write();
 
 /* USER CODE END PFP */
 
@@ -93,7 +101,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  HD44780_Init(2);
+  HD44780_Clear();
+  HD44780_Backlight();
+  HD44780_SetCursor(0,0);
+  HD44780_PrintStr("Bem-vindo ao:");
+  HD44780_SetCursor(0,1);
+  HD44780_PrintStr("Door-Cup");
 
   /* USER CODE END 2 */
 
@@ -120,6 +136,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  xTaskCreate(lcd_write, "lcd_write", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -185,6 +202,54 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x10D19CE4;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -262,6 +327,55 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void lcd_write(){
+
+	while (1){
+		while(HAL_UART_Receive(&huart2, &caracter, 1, HAL_MAX_DELAY) != HAL_OK);
+
+		if (caracter == 't' || caracter == 'T'){
+			HD44780_Clear();
+			HD44780_Backlight();
+			HD44780_SetCursor(0,0);
+			HD44780_PrintStr("Temperatura:");
+			HD44780_SetCursor(0,1);
+			HD44780_PrintStr("24.2C");
+		} else if (caracter == 'P' || caracter == 'p'){
+			HD44780_Clear();
+			HD44780_Backlight();
+			HD44780_SetCursor(0,0);
+			HD44780_PrintStr("Peso:");
+			HD44780_SetCursor(0,1);
+			HD44780_PrintStr("0.30g");
+		}
+	}
+
+
+
+}
+
+// The following makes printf() write to USART2:
+
+#define STDOUT_FILENO   1
+#define STDERR_FILENO   2
+
+int _write(int file, uint8_t *ptr, int len)
+{
+  switch (file)
+  {
+    case STDOUT_FILENO:
+      HAL_UART_Transmit(&huart2, ptr, len, HAL_MAX_DELAY);
+      break;
+
+    case STDERR_FILENO:
+      HAL_UART_Transmit(&huart2, ptr, len, HAL_MAX_DELAY);
+      break;
+
+    default:
+      return -1;
+  }
+
+  return len;
+}
 
 /* USER CODE END 4 */
 
