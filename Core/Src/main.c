@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "liquidcrystal_i2c.h"
+#include "hx711.h"
 
 /* USER CODE END Includes */
 
@@ -51,6 +52,8 @@ UART_HandleTypeDef huart2;
 osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 unsigned char caracter;
+hx711_t loadcell;
+float weight;
 
 /* USER CODE END PV */
 
@@ -63,6 +66,7 @@ void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void lcd_write();
+void StartWeightTask(void *argument);
 
 /* USER CODE END PFP */
 
@@ -137,6 +141,7 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   xTaskCreate(lcd_write, "lcd_write", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(StartWeightTask, "WeightTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -308,6 +313,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(HX711_SCK_GPIO_Port, HX711_SCK_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
@@ -321,6 +329,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : HX711_DOUT_Pin */
+  GPIO_InitStruct.Pin = HX711_DOUT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(HX711_DOUT_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : HX711_SCK_Pin */
+  GPIO_InitStruct.Pin = HX711_SCK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(HX711_SCK_GPIO_Port, &GPIO_InitStruct);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -328,7 +349,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void lcd_write(){
-
 	while (1){
 		while(HAL_UART_Receive(&huart2, &caracter, 1, HAL_MAX_DELAY) != HAL_OK);
 
@@ -348,9 +368,24 @@ void lcd_write(){
 			HD44780_PrintStr("0.30g");
 		}
 	}
+}
+
+void StartWeightTask(void *argument)
+{
+  // Inicialização do HX711
+  hx711_init(&loadcell, HX711_SCK_GPIO_Port, HX711_SCK_Pin, HX711_DOUT_GPIO_Port, HX711_DOUT_Pin);
+  //printf("Começando balanca...");
+  hx711_coef_set(&loadcell, 354.5f);
+  hx711_tare(&loadcell, 10);
+
+  while(1)
+  {
+    weight = hx711_weight(&loadcell, 10);
 
 
 
+    vTaskDelay(pdMS_TO_TICKS(500)); // Delay de 500ms
+  }
 }
 
 // The following makes printf() write to USART2:
