@@ -71,6 +71,7 @@ void StartDefaultTask(void const * argument);
 void lcd_write();
 void readVoltage();
 void StartWeightTask(void *argument);
+long map(long x, long in_min, long in_max, long out_min, long out_max);
 
 /* USER CODE END PFP */
 
@@ -446,6 +447,8 @@ void lcd_write(){
 
 		if (modo == 'T') {
 			int valor = HAL_ADC_GetValue(&hadc1); // valor do potenciômetro
+			valor = map(valor, 0, 4095, 0, 30);
+
 			snprintf(buffer, sizeof(buffer), "%d C", valor);
 			HD44780_SetCursor(0,1);
 			HD44780_PrintStr("                "); // Limpa a linha antes de reescrever
@@ -518,6 +521,10 @@ int _write(int file, uint8_t *ptr, int len)
   }
 
   return len;
+}
+
+long map(long x, long in_min, long in_max, long out_min, long out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 /* USER CODE END 4 */
