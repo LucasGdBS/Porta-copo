@@ -107,8 +107,8 @@ $RECYCLE.BIN/
 *.swp
 .settings/
 .metadata/
-.project
-.cproject
+# .project
+# .cproject
 .idea/
 *.ioc~ # backup do .ioc
 .ipch/
