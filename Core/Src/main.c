@@ -22,9 +22,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "hx711.h"
+#include "liquidcrystal_i2c.h"
 #include <stdio.h>
 #include <string.h>
-#include "liquidcrystal_i2c.h"
 
 /* USER CODE END Includes */
 
@@ -44,13 +45,18 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
+
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 unsigned char caracter;
+volatile float peso;
 
 /* USER CODE END PV */
 
@@ -59,15 +65,25 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
-void lcd_write();
+void lcd_write(void *argument);
+void readVoltage(void *argument);
+void readWeight(void *argument);
+long map(long x, long in_min, long in_max, long out_min, long out_max);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define SCK_PORT GPIOA
+#define SCK_PIN  GPIO_PIN_10  // PA10
+#define DT_PORT GPIOB
+#define DT_PIN  GPIO_PIN_3    // PB3
+HX711 scale;
 
 /* USER CODE END 0 */
 
@@ -102,6 +118,8 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HD44780_Init(2);
   HD44780_Clear();
@@ -137,6 +155,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   xTaskCreate(lcd_write, "lcd_write", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(readVoltage, "readVoltage", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(readWeight, "readWeight", configMINIMAL_STACK_SIZE + 120, NULL, tskIDLE_PRIORITY, NULL);
+
+  // xTaskCreate(StartWeightTask, "WeightTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -205,6 +227,73 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
   * @brief I2C1 Initialization Function
   * @param None
   * @retval None
@@ -249,6 +338,51 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -306,7 +440,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(HX711_SCK_GPIO_Port, HX711_SCK_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -314,12 +451,25 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : LD2_Pin PA10 */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : HX711_DOUT_Pin PB3 */
+  GPIO_InitStruct.Pin = HX711_DOUT_Pin|GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : HX711_SCK_Pin */
+  GPIO_InitStruct.Pin = HX711_SCK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(HX711_SCK_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -327,54 +477,98 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void lcd_write(){
+void lcd_write(void *argument){
+	char buffer[16];
+	char modo = 0; // 0 = nada, 'T' = temperatura, 'P' = peso
 
 	while (1){
-		while(HAL_UART_Receive(&huart2, &caracter, 1, HAL_MAX_DELAY) != HAL_OK);
+		// Verifica se recebeu algo via UART
+		if (HAL_UART_Receive(&huart2, &caracter, 1, 10) == HAL_OK) {
+			if (caracter == 't' || caracter == 'T') {
+				modo = 'T';
+				HD44780_Clear();
+				HD44780_Backlight();
+				HD44780_SetCursor(0,0);
+				HD44780_PrintStr("Temperatura:");
+			} else if (caracter == 'p' || caracter == 'P') {
+				modo = 'P';
 
-		if (caracter == 't' || caracter == 'T'){
-			HD44780_Clear();
-			HD44780_Backlight();
-			HD44780_SetCursor(0,0);
-			HD44780_PrintStr("Temperatura:");
+			}
+		}
+
+		if (modo == 'T') {
+			int16_t valor = HAL_ADC_GetValue(&hadc1); // valor do potenciômetro
+			valor = map(valor, 0, 4095, 0, 30);
+
+			snprintf(buffer, sizeof(buffer), "%d C", valor);
 			HD44780_SetCursor(0,1);
-			HD44780_PrintStr("24.2C");
-		} else if (caracter == 'P' || caracter == 'p'){
+			HD44780_PrintStr("                "); // Limpa a linha antes de reescrever
+			HD44780_SetCursor(0,1);
+			HD44780_PrintStr(buffer);
+		} else if (modo == 'P') {
+			// Aqui você poderia atualizar peso se quisesse no futuro
 			HD44780_Clear();
 			HD44780_Backlight();
 			HD44780_SetCursor(0,0);
 			HD44780_PrintStr("Peso:");
+			snprintf(buffer, sizeof(buffer), "%d g", (int)peso);
 			HD44780_SetCursor(0,1);
-			HD44780_PrintStr("0.30g");
+			HD44780_PrintStr(buffer);
 		}
+
+		osDelay(500);; // Atualiza a cada 500ms
+	}
+}
+
+void readVoltage(void *argument){
+	while(1){
+		HAL_ADC_Start(&hadc1);
+		HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+		osDelay(50);
 	}
 
+		// HAL_UART_Transmit(&huart2, (uint32_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
+}
 
+void readWeight(void *argument){
+    HAL_TIM_Base_Start(&htim2);
+    HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_SET);
+    osDelay(10);
+    HAL_GPIO_WritePin(SCK_PORT, SCK_PIN, GPIO_PIN_RESET);
+    osDelay(10);
+
+    HX711_Init(&scale, GPIOB, GPIO_PIN_3, GPIOA, GPIO_PIN_10, 128);
+
+    // Aguarda estabilidade
+    osDelay(1000);
+
+    long leitura = HX711_ReadAverage(&scale, 20);
+    printf("Leitura com peso de calibração: %ld\r\n", leitura);
+
+    float pesoCalibracao = 800.0f; // ex: 1000g (1kg colocado)
+    float fator = (float)leitura / pesoCalibracao;
+    HX711_SetScale(fator);
+
+    HX711_Tare(&scale, 20);  // agora com a balança vazia e parada
+
+    while (1) {
+        float novoPeso = HX711_GetUnits(&scale, 10);
+        peso = novoPeso;
+        printf("Peso: %.2f g\r\n", peso);
+        osDelay(500);
+    }
 }
 
 // The following makes printf() write to USART2:
 
-#define STDOUT_FILENO   1
-#define STDERR_FILENO   2
+int __io_putchar(int ch) {
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 10);  // timeout curto!
+    return ch;
+}
 
-int _write(int file, uint8_t *ptr, int len)
-{
-  switch (file)
-  {
-    case STDOUT_FILENO:
-      HAL_UART_Transmit(&huart2, ptr, len, HAL_MAX_DELAY);
-      break;
-
-    case STDERR_FILENO:
-      HAL_UART_Transmit(&huart2, ptr, len, HAL_MAX_DELAY);
-      break;
-
-    default:
-      return -1;
-  }
-
-  return len;
+long map(long x, long in_min, long in_max, long out_min, long out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 /* USER CODE END 4 */
