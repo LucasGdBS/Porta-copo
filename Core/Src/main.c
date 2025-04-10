@@ -25,7 +25,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "liquidcrystal_i2c.h"
-#include "hx711.h"
 
 /* USER CODE END Includes */
 
@@ -46,16 +45,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-
 I2C_HandleTypeDef hi2c1;
-
 UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 unsigned char caracter;
-hx711_t loadcell;
-float weight;
 
 /* USER CODE END PV */
 
@@ -70,7 +65,6 @@ void StartDefaultTask(void const * argument);
 /* USER CODE BEGIN PFP */
 void lcd_write();
 void readVoltage();
-void StartWeightTask(void *argument);
 long map(long x, long in_min, long in_max, long out_min, long out_max);
 
 /* USER CODE END PFP */
@@ -479,24 +473,6 @@ void readVoltage(){
 
 		// HAL_UART_Transmit(&huart2, (uint32_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 	}
-}
-
-void StartWeightTask(void *argument)
-{
-  // Inicialização do HX711
-  hx711_init(&loadcell, HX711_SCK_GPIO_Port, HX711_SCK_Pin, HX711_DOUT_GPIO_Port, HX711_DOUT_Pin);
-  //printf("Começando balanca...");
-  hx711_coef_set(&loadcell, 354.5f);
-  hx711_tare(&loadcell, 10);
-
-  while(1)
-  {
-    weight = hx711_weight(&loadcell, 10);
-
-
-
-    vTaskDelay(pdMS_TO_TICKS(500)); // Delay de 500ms
-  }
 }
 
 // The following makes printf() write to USART2:
